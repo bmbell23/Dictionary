@@ -1,0 +1,11 @@
+# Weekly rebuild of the local Open English WordNet dictionary (Sunday 04:00 ET).
+# Runs sync-dictionary.js inside the running dictionary-api container; the script
+# swaps /data/dictionary.db atomically, so a failed run leaves the old DB in place.
+# NOTE: not installed anywhere. Dagu cannot run host jobs (docker exec) yet.
+name: dictionary-sync
+description: Rebuild the local Open English WordNet dictionary DB
+schedule: "CRON_TZ=America/New_York 0 4 * * 0"
+max_active_runs: 1
+steps:
+  - name: sync-dictionary
+    command: docker exec dictionary-api node sync-dictionary.js
