@@ -3,6 +3,7 @@ const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
 const { VOCABULARY_LEVELS } = require('./vocabulary-data.js');
+const glossary = require('./glossary.js');
 
 const app = express();
 const PORT = 3000;
@@ -343,19 +344,116 @@ app.get('/api/define/:lang/:word', async (req, res) => {
     }
 });
 
+// Personal glossary endpoints (must come before /api/:word)
+
+function sendGlossaryError(res, error) {
+    if (error && error.status) return res.status(error.status).json({ error: error.message });
+    console.error('Glossary error:', error);
+    res.status(500).json({ error: 'Glossary error' });
+}
+
+app.get('/api/terms', (req, res) => {
+    try {
+        res.json(glossary.list({ tag: req.query.tag, q: req.query.q }));
+    } catch (error) { sendGlossaryError(res, error); }
+});
+
+app.get('/api/terms/tags', (req, res) => {
+    try {
+        res.json(glossary.tags());
+    } catch (error) { sendGlossaryError(res, error); }
+});
+
+app.get('/api/terms/export', (req, res) => {
+    try {
+        const date = new Date().toISOString().slice(0, 10);
+        res.set('Content-Disposition', `attachment; filename="glossary-${date}.json"`);
+        res.json({ exportedAt: new Date().toISOString(), terms: glossary.list() });
+    } catch (error) { sendGlossaryError(res, error); }
+});
+
+app.get('/api/terms/:term', (req, res) => {
+    try {
+        const term = glossary.get(req.params.term);
+        if (!term) return res.status(404).json({ error: 'Term not found' });
+        res.json(term);
+    } catch (error) { sendGlossaryError(res, error); }
+});
+
+app.post('/api/terms', (req, res) => {
+    try {
+        res.status(201).json(glossary.create(req.body || {}));
+    } catch (error) { sendGlossaryError(res, error); }
+});
+
+app.put('/api/terms/:term', (req, res) => {
+    try {
+        res.json(glossary.update(req.params.term, req.body || {}));
+    } catch (error) { sendGlossaryError(res, error); }
+});
+
+app.delete('/api/terms/:term', (req, res) => {
+    try {
+        glossary.remove(req.params.term);
+        res.status(204).end();
+    } catch (error) { sendGlossaryError(res, error); }
+});
+
+// Combined lookup: personal glossary term (if any) beside the dictionary entry (if any)
+app.get('/api/lookup/:word', async (req, res) => {
+    const word = req.params.word;
+    let term = null;
+    try {
+        term = glossary.get(word);
+    } catch (error) {
+        console.error('Glossary lookup error:', error);
+    }
+    let dictionary = null;
+    try {
+        dictionary = await fetchEnglishEntries(word.toLowerCase());
+    } catch (error) {
+        if (!term) return res.status(500).json({ error: 'Error fetching definition' });
+    }
+    if (!term && !dictionary) return res.status(404).json({ error: 'Word not found' });
+    res.json({ word, glossary: term, dictionary });
+});
+
+// Autocomplete: glossary terms first, then Datamuse suggestions
+app.get('/api/suggest', async (req, res) => {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.json([]);
+    let mine = [];
+    try {
+        mine = glossary.suggest(q, 8);
+    } catch (error) {
+        console.error('Glossary suggest error:', error);
+    }
+    let others = [];
+    try {
+        const response = await axios.get(`https://api.datamuse.com/sug?s=${encodeURIComponent(q)}&max=8`, { timeout: 5000 });
+        others = response.data.map(s => s.word);
+    } catch (error) {
+        console.error('Autocomplete error:', error.message);
+    }
+    const seen = new Set(mine.map(t => t.toLowerCase()));
+    const suggestions = mine.map(word => ({ word, glossary: true }));
+    for (const word of others) {
+        if (suggestions.length >= 8) break;
+        if (!seen.has(word.toLowerCase())) suggestions.push({ word, glossary: false });
+    }
+    res.json(suggestions);
+});
+
 // Legacy API endpoint (English only, for backwards compatibility)
 app.get('/api/:word', async (req, res) => {
     const word = req.params.word.toLowerCase();
 
     try {
-        const response = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
-        res.json(response.data);
+        const entries = await fetchEnglishEntries(word);
+        if (!entries) return res.status(404).json({ error: 'Word not found' });
+        res.json(entries);
     } catch (error) {
-        if (error.response && error.response.status === 404) {
-            res.status(404).json({ error: 'Word not found' });
-        } else {
-            res.status(500).json({ error: 'Error fetching definition' });
-        }
+        res.status(500).json({ error: 'Error fetching definition' });
     }
 });
 
@@ -370,6 +468,17 @@ app.get('/:word', (req, res) => {
     // Serve the HTML page with the word pre-filled
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
+
+// English dictionary entries for a word (dictionaryapi.dev shape), or null if not found
+async function fetchEnglishEntries(word) {
+    try {
+        const response = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+        return response.data;
+    } catch (error) {
+        if (error.response && error.response.status === 404) return null;
+        throw error;
+    }
+}
 
 // Health check function
 async function performHealthCheck() {
@@ -411,14 +520,19 @@ async function performHealthCheck() {
     });
 }
 
-// Perform health check on startup
-performHealthCheck();
+if (require.main === module) {
+    glossary.open();
 
-// Perform health check every hour
-setInterval(performHealthCheck, 60 * 60 * 1000);
+    // Perform health check on startup
+    performHealthCheck();
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Dictionary server running on http://0.0.0.0:${PORT}`);
-    console.log('Health checks will run every hour');
-});
+    // Perform health check every hour
+    setInterval(performHealthCheck, 60 * 60 * 1000);
 
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`Dictionary server running on http://0.0.0.0:${PORT}`);
+        console.log('Health checks will run every hour');
+    });
+}
+
+module.exports = { app, fetchEnglishEntries };

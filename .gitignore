@@ -1,6 +1,9 @@
 # Node dependencies
 app/node_modules/
 
+# App data (SQLite)
+data/
+
 # Runtime logs
 logs/*.log
 

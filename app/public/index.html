@@ -517,6 +517,117 @@
             background: #b71c1c;
         }
 
+        .glossary-block {
+            background: #fff8e1;
+            border: 2px solid #c8a24a;
+            border-radius: 8px;
+            padding: 18px 20px;
+            margin-bottom: 25px;
+        }
+
+        .glossary-badge {
+            display: inline-block;
+            background: #c8a24a;
+            color: #fff;
+            font-size: 0.75em;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            padding: 3px 10px;
+            border-radius: 12px;
+            margin-bottom: 8px;
+        }
+
+        .glossary-meta {
+            margin-top: 10px;
+            color: #6d4c41;
+            font-size: 0.95em;
+            line-height: 1.6;
+        }
+
+        .glossary-tag {
+            display: inline-block;
+            background: #efebe9;
+            border: 1px solid #bcaaa4;
+            color: #5d4037;
+            border-radius: 12px;
+            padding: 2px 10px;
+            margin: 2px 4px 2px 0;
+            font-size: 0.85em;
+            cursor: pointer;
+        }
+
+        .glossary-tag.active {
+            background: #8b4513;
+            border-color: #8b4513;
+            color: #fff;
+        }
+
+        .glossary-form {
+            background: #fff;
+            border: 2px solid #8b4513;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            display: grid;
+            gap: 10px;
+        }
+
+        .glossary-form input,
+        .glossary-form textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #bcaaa4;
+            border-radius: 6px;
+            font-family: 'Georgia', serif;
+            font-size: 1em;
+            box-sizing: border-box;
+        }
+
+        .glossary-form textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        .glossary-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .glossary-btn {
+            background: #6d4c41;
+            color: #fff;
+            border: none;
+            padding: 8px 18px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: 'Georgia', serif;
+            font-size: 0.95em;
+            text-decoration: none;
+        }
+
+        .glossary-btn.secondary {
+            background: #efebe9;
+            color: #5d4037;
+            border: 1px solid #bcaaa4;
+        }
+
+        .glossary-actions {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            display: flex;
+            gap: 6px;
+        }
+
+        .glossary-mark {
+            color: #c8a24a;
+            font-size: 0.85em;
+            margin-left: 6px;
+        }
+
         .empty-state {
             text-align: center;
             padding: 60px 20px;
@@ -851,6 +962,7 @@
             <div class="tab" onclick="switchTab('word-of-day')">Word of the Day</div>
             <div class="tab" onclick="switchTab('favorites')">⭐ Favorites</div>
             <div class="tab" onclick="switchTab('learn')">🎓 Learn</div>
+            <div class="tab" onclick="switchTab('terms')">📒 My Terms</div>
         </div>
 
         <!-- Dictionary Tab -->
@@ -945,6 +1057,33 @@
         </div>
 
         <!-- Learn Tab -->
+        <div id="terms-tab" class="tab-content">
+            <div class="result" style="display: block;">
+                <h2 style="margin-bottom: 15px; color: #3e2723; text-align: center;">📒 My Terms</h2>
+                <div class="glossary-toolbar">
+                    <button class="glossary-btn" onclick="showTermForm()">+ Add term</button>
+                    <input type="text" id="termsFilter" placeholder="Filter terms..." oninput="loadTerms()" style="flex: 1; min-width: 150px; padding: 8px; border: 1px solid #bcaaa4; border-radius: 6px; font-family: 'Georgia', serif;">
+                    <a class="glossary-btn secondary" href="/api/terms/export">Export JSON</a>
+                </div>
+                <div id="terms-tags" style="margin-bottom: 15px;"></div>
+                <form id="term-form" class="glossary-form" style="display: none;" onsubmit="event.preventDefault(); saveTerm();">
+                    <input type="hidden" id="termOriginal">
+                    <input type="text" id="termTerm" placeholder="Term (e.g. dockerhost)" required>
+                    <input type="text" id="termPos" placeholder="Part of speech (optional)">
+                    <textarea id="termDefinition" placeholder="Definition" required></textarea>
+                    <input type="text" id="termTags" placeholder="Tags, comma-separated (e.g. project:GreatReads, server)">
+                    <input type="text" id="termSeeAlso" placeholder="See also, comma-separated (optional)">
+                    <textarea id="termNotes" placeholder="Notes (optional)"></textarea>
+                    <div id="term-form-error" class="error" style="display: none;"></div>
+                    <div style="display: flex; gap: 10px;">
+                        <button type="submit" class="glossary-btn">Save</button>
+                        <button type="button" class="glossary-btn secondary" onclick="hideTermForm()">Cancel</button>
+                    </div>
+                </form>
+                <div id="terms-list" class="favorites-list"></div>
+            </div>
+        </div>
+
         <div id="learn-tab" class="tab-content">
             <!-- Language Selection -->
             <div id="learn-home" class="result" style="display: block;">
@@ -1010,8 +1149,10 @@
         let autocompleteItems = [];
 
         // Get word from URL if present
-        const pathWord = window.location.pathname.substring(1);
-        if (pathWord && pathWord !== '') {
+        const pathWord = decodeURIComponent(window.location.pathname.substring(1));
+        if (pathWord === 'terms') {
+            window.addEventListener('DOMContentLoaded', () => openTab('terms'));
+        } else if (pathWord && pathWord !== '') {
             document.getElementById('searchInput').value = pathWord;
             searchWord();
         }
@@ -1029,7 +1170,7 @@
             }
 
             try {
-                const response = await fetch(`https://api.datamuse.com/sug?s=${encodeURIComponent(query)}&max=8`);
+                const response = await fetch(`/api/suggest?q=${encodeURIComponent(query)}`);
                 const suggestions = await response.json();
 
                 if (suggestions.length > 0) {
@@ -1079,8 +1220,10 @@
             autocompleteDiv.innerHTML = suggestions.map((item, index) => {
                 const word = item.word;
                 const query = searchInput.value.trim();
-                const highlighted = word.replace(new RegExp(`(${query})`, 'gi'), '<strong>$1</strong>');
-                return `<div class="autocomplete-item" data-index="${index}" onclick="selectSuggestion('${word}')">${highlighted}</div>`;
+                const pattern = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const highlighted = escapeHtml(word).replace(new RegExp(`(${pattern})`, 'gi'), '<strong>$1</strong>');
+                const mark = item.glossary ? '<span class="glossary-mark">📒 my term</span>' : '';
+                return `<div class="autocomplete-item" data-index="${index}" onclick="selectSuggestion(${jsArg(word)})">${highlighted}${mark}</div>`;
             }).join('');
 
             autocompleteDiv.classList.add('show');
@@ -1134,6 +1277,18 @@
             loadingDiv.style.display = 'block';
 
             try {
+                if (lang === 'en') {
+                    const response = await fetch(`/api/lookup/${encodeURIComponent(word)}`);
+                    const data = await response.json();
+                    loadingDiv.style.display = 'none';
+                    if (response.ok) {
+                        displayLookup(data);
+                    } else {
+                        displayError('Word not found. Try another word.');
+                    }
+                    return;
+                }
+
                 const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/${lang}/${word}`);
                 const data = await response.json();
 
@@ -1150,7 +1305,53 @@
             }
         }
         
-        async function displayResult(data, sourceLang = 'en') {
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        // A string literal safe to drop into an inline onclick="fn(...)"
+        function jsArg(value) {
+            return escapeHtml(JSON.stringify(String(value ?? '')));
+        }
+
+        function glossaryHtml(term) {
+            const tags = term.tags.map(t => `<span class="glossary-tag" onclick="openTab('terms'); filterTermsByTag(${jsArg(t)})">${escapeHtml(t)}</span>`).join('');
+            const seeAlso = term.seeAlso.map(w =>
+                `<a href="/${encodeURIComponent(w)}" class="synonym-link" onclick="event.preventDefault(); lookupWord(${jsArg(w)})">${escapeHtml(w)}</a>`
+            ).join(', ');
+            return `
+                <div class="glossary-block">
+                    <div class="glossary-badge">📒 My term</div>
+                    ${term.partOfSpeech ? `<div class="part-of-speech">${escapeHtml(term.partOfSpeech)}</div>` : ''}
+                    <div class="definition-text" style="white-space: pre-line;">${escapeHtml(term.definition)}</div>
+                    <div class="glossary-meta">
+                        ${term.notes ? `<div style="white-space: pre-line;"><em>${escapeHtml(term.notes)}</em></div>` : ''}
+                        ${seeAlso ? `<div><strong>See also:</strong> ${seeAlso}</div>` : ''}
+                        ${tags ? `<div>${tags}</div>` : ''}
+                        <div style="margin-top: 8px;"><a href="#" class="synonym-link" onclick="event.preventDefault(); editTerm(${jsArg(term.term)})">Edit term</a></div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Result of /api/lookup: personal term beside the dictionary entry
+        function displayLookup(data) {
+            if (data.dictionary) {
+                displayResult(data.dictionary, 'en', data.glossary ? glossaryHtml(data.glossary) : '');
+                return;
+            }
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = `
+                <div class="word-title">${escapeHtml(data.glossary.term)}</div>
+                ${glossaryHtml(data.glossary)}
+                <div class="glossary-meta"><em>Not in the dictionary, only in your glossary.</em></div>
+            `;
+            resultDiv.classList.add('show');
+        }
+
+        async function displayResult(data, sourceLang = 'en', glossaryPrefix = '') {
             const resultDiv = document.getElementById('result');
             const wordData = data[0];
 
@@ -1164,6 +1365,7 @@
                     ${wordData.word}
                 </div>
                 <div class="phonetic">${wordData.phonetic || ''}</div>
+                ${glossaryPrefix}
             `;
 
             wordData.meanings.forEach(meaning => {
@@ -1524,6 +1726,118 @@
             return date.toLocaleDateString();
         }
 
+        // Personal glossary (My Terms tab)
+        let activeTermTag = '';
+
+        function openTab(tabName) {
+            const tab = document.querySelector(`.tab[onclick="switchTab('${tabName}')"]`);
+            if (tab) tab.click();
+        }
+
+        async function loadTerms() {
+            const filter = document.getElementById('termsFilter').value.trim();
+            const params = new URLSearchParams();
+            if (activeTermTag) params.set('tag', activeTermTag);
+            if (filter) params.set('q', filter);
+
+            const [termsRes, tagsRes] = await Promise.all([
+                fetch(`/api/terms?${params}`),
+                fetch('/api/terms/tags')
+            ]);
+            const terms = await termsRes.json();
+            const tags = await tagsRes.json();
+
+            document.getElementById('terms-tags').innerHTML = tags.map(t =>
+                `<span class="glossary-tag ${t.tag === activeTermTag ? 'active' : ''}" onclick="filterTermsByTag(${jsArg(t.tag)})">${escapeHtml(t.tag)} (${t.count})</span>`
+            ).join('');
+
+            const list = document.getElementById('terms-list');
+            if (terms.length === 0) {
+                list.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📒</div>
+                        <h3>${activeTermTag || filter ? 'No matching terms' : 'No terms yet'}</h3>
+                        <p>Add the words the dictionary doesn't know: project names, jargon, in-jokes.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            list.innerHTML = terms.map(t => `
+                <div class="favorite-item">
+                    <div class="glossary-actions">
+                        <button class="glossary-btn secondary" onclick="editTerm(${jsArg(t.term)})">Edit</button>
+                        <button class="remove-favorite" style="position: static;" onclick="deleteTerm(${jsArg(t.term)})">Delete</button>
+                    </div>
+                    <div class="favorite-word" onclick="lookupWord(${jsArg(t.term)}); openTab('dictionary');">${escapeHtml(t.term)}</div>
+                    <div class="favorite-definition">
+                        ${t.partOfSpeech ? `<em>${escapeHtml(t.partOfSpeech)}</em> — ` : ''}${escapeHtml(t.definition)}
+                    </div>
+                    ${t.tags.length ? `<div style="margin-top: 8px;">${t.tags.map(tag => `<span class="glossary-tag" onclick="filterTermsByTag(${jsArg(tag)})">${escapeHtml(tag)}</span>`).join('')}</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function filterTermsByTag(tag) {
+            activeTermTag = activeTermTag === tag ? '' : tag;
+            loadTerms();
+        }
+
+        function showTermForm(term = null) {
+            document.getElementById('term-form').style.display = 'grid';
+            document.getElementById('term-form-error').style.display = 'none';
+            document.getElementById('termOriginal').value = term ? term.term : '';
+            document.getElementById('termTerm').value = term ? term.term : '';
+            document.getElementById('termPos').value = term ? term.partOfSpeech : '';
+            document.getElementById('termDefinition').value = term ? term.definition : '';
+            document.getElementById('termTags').value = term ? term.tags.join(', ') : '';
+            document.getElementById('termSeeAlso').value = term ? term.seeAlso.join(', ') : '';
+            document.getElementById('termNotes').value = term ? term.notes : '';
+            document.getElementById('termTerm').focus();
+        }
+
+        function hideTermForm() {
+            document.getElementById('term-form').style.display = 'none';
+        }
+
+        async function editTerm(term) {
+            const response = await fetch(`/api/terms/${encodeURIComponent(term)}`);
+            if (!response.ok) return;
+            openTab('terms');
+            showTermForm(await response.json());
+        }
+
+        async function saveTerm() {
+            const original = document.getElementById('termOriginal').value;
+            const body = {
+                term: document.getElementById('termTerm').value,
+                partOfSpeech: document.getElementById('termPos').value,
+                definition: document.getElementById('termDefinition').value,
+                tags: document.getElementById('termTags').value,
+                seeAlso: document.getElementById('termSeeAlso').value,
+                notes: document.getElementById('termNotes').value
+            };
+            const response = await fetch(original ? `/api/terms/${encodeURIComponent(original)}` : '/api/terms', {
+                method: original ? 'PUT' : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            if (!response.ok) {
+                const errorDiv = document.getElementById('term-form-error');
+                errorDiv.textContent = (await response.json()).error || 'Could not save the term';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            hideTermForm();
+            loadTerms();
+        }
+
+        async function deleteTerm(term) {
+            if (!confirm(`Delete "${term}" from your glossary?`)) return;
+            await fetch(`/api/terms/${encodeURIComponent(term)}`, { method: 'DELETE' });
+            loadTerms();
+        }
+
         // Update switchTab to load content
         const originalSwitchTab = switchTab;
         switchTab = function(tabName) {
@@ -1533,6 +1847,8 @@
                 loadFavorites();
             } else if (tabName === 'learn') {
                 loadLanguages();
+            } else if (tabName === 'terms') {
+                loadTerms();
             }
         };
     </script>
