@@ -173,3 +173,13 @@ Unlike traditional dictionary apps that require downloading large dictionary fil
 - **Monitoring**: `docs/MONITORING.md`
 - **Feature Summary**: `docs/SUMMARY.md`
 
+
+## Local dictionary (Open English WordNet)
+
+English lookups are served from a local SQLite database built from Open English WordNet 2025 (JSON release), with live `api.dictionaryapi.dev` as a fallback when the DB is missing or the word is not in it. Responses carry `source: "oewn-2025"` or `"dictionaryapi.dev"`.
+
+- **Where it lives:** `./data/dictionary.db` on the host (`/data/dictionary.db` in the container, via `DATA_DIR=/data`). `data/` is gitignored.
+- **Build / refresh:** `docker exec dictionary-api node sync-dictionary.js`. It builds `dictionary.db.tmp`, sanity-checks the download and word count, then atomically renames it into place; on any failure the existing DB is untouched and the script exits non-zero. The server notices the replaced file and reopens it, so no restart is needed.
+- **Status:** `/api/health` reports `localDictionary: {status, words, builtAt}`.
+- **Schedule:** `dagu/dictionary-sync.yaml` is a weekly (Sunday 04:00 America/New_York) Dagu DAG. It is not installed anywhere yet; Dagu cannot run host jobs (`docker exec`) today.
+- **Tests:** `cd app && npm test` (Node 22+, uses built-in `node:sqlite`).

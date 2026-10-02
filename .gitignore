@@ -10,3 +10,6 @@ logs/*.log
 # OS/editor noise
 .DS_Store
 Thumbs.db
+
+# Local dictionary database (built by app/sync-dictionary.js)
+data/

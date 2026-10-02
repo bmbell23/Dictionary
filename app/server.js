@@ -2,11 +2,84 @@ const express = require('express');
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
+const { DatabaseSync } = require('node:sqlite');
 const { VOCABULARY_LEVELS } = require('./vocabulary-data.js');
 const glossary = require('./glossary.js');
 
 const app = express();
 const PORT = 3000;
+
+// Local dictionary (Open English WordNet, built by sync-dictionary.js)
+let localDb = null;
+let localDbStamp = null; // `${ino}:${mtimeMs}` of the file the handle was opened on
+
+function dbPath() {
+    return path.join(process.env.DATA_DIR || '/data', 'dictionary.db');
+}
+
+// Lazily open read-only; reopen when the file was replaced by a sync. Returns null if unavailable.
+function getLocalDb() {
+    let stamp;
+    try {
+        const st = fs.statSync(dbPath());
+        stamp = `${st.ino}:${st.mtimeMs}`;
+    } catch (e) {
+        closeLocalDb();
+        return null;
+    }
+    if (localDb && stamp === localDbStamp) return localDb;
+    closeLocalDb();
+    try {
+        localDb = new DatabaseSync(dbPath(), { readOnly: true });
+        localDbStamp = stamp;
+    } catch (e) {
+        console.error('Could not open local dictionary:', e.message);
+        localDb = null;
+        localDbStamp = null;
+    }
+    return localDb;
+}
+
+function closeLocalDb() {
+    if (localDb) {
+        try { localDb.close(); } catch (e) { /* ignore */ }
+    }
+    localDb = null;
+    localDbStamp = null;
+}
+
+function localDictionaryInfo() {
+    const db = getLocalDb();
+    if (!db) return { status: 'missing', words: 0, builtAt: null };
+    try {
+        const meta = Object.fromEntries(db.prepare('SELECT key, value FROM meta').all().map(r => [r.key, r.value]));
+        return { status: 'ok', words: parseInt(meta.lemmas, 10) || 0, builtAt: meta.built_at || null };
+    } catch (e) {
+        return { status: 'error', words: 0, builtAt: null };
+    }
+}
+
+// Returns a dictionaryapi.dev-shaped array, or null if the word is not found.
+// Local DB first, then live dictionaryapi.dev. Throws on non-404 live errors.
+async function fetchEnglishEntries(word) {
+    const key = String(word).trim().toLowerCase();
+    const db = getLocalDb();
+    if (db) {
+        try {
+            const row = db.prepare('SELECT data FROM entries WHERE lemma = ?').get(key);
+            if (row) return JSON.parse(row.data);
+        } catch (e) {
+            console.error('Local dictionary lookup failed:', e.message);
+        }
+    }
+    try {
+        const response = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(key)}`);
+        return response.data.map(entry => ({ ...entry, source: 'dictionaryapi.dev' }));
+    } catch (error) {
+        if (error.response && error.response.status === 404) return null;
+        throw error;
+    }
+}
 
 // Serve static files
 app.use(express.static('public'));
@@ -39,7 +112,8 @@ app.get('/api/health', async (req, res) => {
     res.json({
         status: 'ok',
         timestamp: new Date().toISOString(),
-        apis: healthStatus
+        apis: healthStatus,
+        localDictionary: localDictionaryInfo()
     });
 });
 
@@ -90,8 +164,8 @@ app.get('/api/learn/level/:level/lesson/:lesson', async (req, res) => {
     const wordDetails = await Promise.all(
         lessonWords.map(async (word) => {
             try {
-                const response = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
-                const data = response.data[0];
+                const entries = await fetchEnglishEntries(word);
+                const data = entries[0];
                 return {
                     word: word,
                     phonetic: data.phonetic || '',
@@ -193,10 +267,13 @@ app.get('/api/word-of-day', async (req, res) => {
     const word = interestingWords[wordIndex];
 
     try {
-        const response = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
+        const entries = await fetchEnglishEntries(word);
+        if (!entries) {
+            return res.status(404).json({ error: 'Word of the day not found' });
+        }
         res.json({
             word: word,
-            data: response.data[0]
+            data: entries[0]
         });
     } catch (error) {
         console.error('Word of day error:', error.message);
@@ -269,9 +346,11 @@ app.get('/api/define/:lang/:word', async (req, res) => {
 
     try {
         if (lang === 'en') {
-            // Use dictionary API for English
-            const response = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
-            res.json(response.data);
+            const entries = await fetchEnglishEntries(word);
+            if (!entries) {
+                return res.status(404).json({ error: 'Word not found' });
+            }
+            res.json(entries);
         } else {
             // For other languages, translate to English and get definition
             const transResponse = await axios.get(
@@ -283,8 +362,9 @@ app.get('/api/define/:lang/:word', async (req, res) => {
 
                 // Get English definition
                 try {
-                    const dictResponse = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${englishWord}`);
-                    const dictData = dictResponse.data[0];
+                    const entries = await fetchEnglishEntries(englishWord);
+                    if (!entries) throw new Error('English definition not found');
+                    const dictData = entries[0];
 
                     // Create a modified response with the original foreign word
                     const modifiedData = {
@@ -469,17 +549,6 @@ app.get('/:word', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// English dictionary entries for a word (dictionaryapi.dev shape), or null if not found
-async function fetchEnglishEntries(word) {
-    try {
-        const response = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
-        return response.data;
-    } catch (error) {
-        if (error.response && error.response.status === 404) return null;
-        throw error;
-    }
-}
-
 // Health check function
 async function performHealthCheck() {
     const now = new Date().toISOString();
@@ -535,4 +604,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { app, fetchEnglishEntries };
+module.exports = { app, fetchEnglishEntries, getLocalDb, closeLocalDb, localDictionaryInfo };
