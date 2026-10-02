@@ -1,6 +1,6 @@
 services:
   dictionary-api:
-    image: node:18-alpine
+    image: node:22-alpine
     container_name: dictionary-api
     restart: unless-stopped
     working_dir: /app
@@ -8,9 +8,11 @@ services:
       - "8098:3000"
     volumes:
       - ./app:/app
+      - ./data:/data
     command: sh -c "npm install && node server.js"
     environment:
       - TZ=America/New_York
+      - DATA_DIR=/data
     networks:
       - dictionary-network
 
