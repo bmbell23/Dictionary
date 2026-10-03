@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Recreate Dictionary from this checkout, then wait until it answers (#5, agent-bus docs/DEPLOY.md).
+# Migrations: run at startup by the app (glossary.js: CREATE TABLE IF NOT EXISTS). The OEWN
+# dictionary.db is rebuilt separately by app/sync-dictionary.js (Dagu dictionary-sync), not here.
+#
+# dictionary-api runs stock node:22-alpine with ./app bind-mounted, so there is no image to build:
+# --force-recreate is what makes it pick up new server.js (plain `up -d` would be a no-op).
+set -euo pipefail
+cd "$(dirname "$0")"
+
+docker compose up -d --force-recreate dictionary-api
+
+# Startup runs `npm install` before node, so give it up to 3 minutes.
+for _ in $(seq 1 90); do
+    if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 localhost:8098/api/health)" = 200 ]; then
+        echo "deploy: dictionary up on :8098 ($(cat version.txt 2>/dev/null || echo 'no version'))"
+        exit 0
+    fi
+    sleep 2
+done
+echo "deploy: dictionary did not answer 200 on :8098/api/health within 180 s" >&2
+docker logs --tail 20 dictionary-api >&2 || true
+exit 1
