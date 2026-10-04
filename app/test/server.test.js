@@ -9,7 +9,7 @@ const { writeFixture } = require('./fixture');
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'dict-server-test-'));
 process.env.DATA_DIR = path.join(work, 'data');
-const { fetchEnglishEntries, closeLocalDb, localDictionaryInfo } = require('../server');
+const { app, fetchEnglishEntries, closeLocalDb, localDictionaryInfo } = require('../server');
 
 function stubLive(impl) {
     const orig = axios.get;
@@ -69,6 +69,24 @@ test('reopens the DB after a sync replaces the file', async () => {
         buildAndSwap(path.join(work, 'src'), process.env.DATA_DIR, { minLemmas: 1 });
         assert.strictEqual((await fetchEnglishEntries('hot'))[0].meanings[0].definitions[0].definition, 'changed definition');
     } finally { restore(); }
+});
+
+test('/api/health answers immediately while upstreams hang', async () => {
+    let liveCalls = 0;
+    const restore = stubLive(() => { liveCalls++; return new Promise(() => {}); });
+    const server = app.listen(0);
+    try {
+        const started = Date.now();
+        const res = await fetch(`http://127.0.0.1:${server.address().port}/api/health`);
+        const body = await res.json();
+        assert.strictEqual(res.status, 200);
+        assert.strictEqual(body.status, 'ok');
+        assert.ok(Date.now() - started < 1000, `took ${Date.now() - started} ms`);
+        assert.strictEqual(liveCalls, 0);
+    } finally {
+        server.close();
+        restore();
+    }
 });
 
 test.after(() => closeLocalDb());
