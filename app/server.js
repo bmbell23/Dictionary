@@ -106,9 +106,10 @@ const LANGUAGES = {
     'polish': 'pl'
 };
 
-// Health check endpoint (must come before /api/:word)
-app.get('/api/health', async (req, res) => {
-    await performHealthCheck();
+// Health check endpoint (must come before /api/:word).
+// Answers from the cached upstream status and never waits on an upstream:
+// k8s probes hit this, and a hanging dictionaryapi.dev must not take the pod down (#10).
+app.get('/api/health', (req, res) => {
     res.json({
         status: 'ok',
         timestamp: new Date().toISOString(),
@@ -549,37 +550,28 @@ app.get('/:word', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Health check function
+const HEALTH_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+
+const UPSTREAM_CHECKS = {
+    dictionaryApi: { label: 'Dictionary API', url: 'https://api.dictionaryapi.dev/api/v2/entries/en/test' },
+    translationApi: { label: 'Translation API', url: 'https://api.mymemory.translated.net/get?q=hello&langpair=en|es' },
+    autocompleteApi: { label: 'Autocomplete API', url: 'https://api.datamuse.com/sug?s=test&max=1' }
+};
+
+// Health check function: checks the upstreams in parallel and updates healthStatus
 async function performHealthCheck() {
     const now = new Date().toISOString();
     healthStatus.lastCheck = now;
 
-    // Check Dictionary API
-    try {
-        await axios.get('https://api.dictionaryapi.dev/api/v2/entries/en/test', { timeout: 5000 });
-        healthStatus.dictionaryApi = { status: 'healthy', lastSuccess: now };
-    } catch (error) {
-        healthStatus.dictionaryApi.status = 'unhealthy';
-        console.error('Dictionary API health check failed:', error.message);
-    }
-
-    // Check Translation API
-    try {
-        await axios.get('https://api.mymemory.translated.net/get?q=hello&langpair=en|es', { timeout: 5000 });
-        healthStatus.translationApi = { status: 'healthy', lastSuccess: now };
-    } catch (error) {
-        healthStatus.translationApi.status = 'unhealthy';
-        console.error('Translation API health check failed:', error.message);
-    }
-
-    // Check Autocomplete API
-    try {
-        await axios.get('https://api.datamuse.com/sug?s=test&max=1', { timeout: 5000 });
-        healthStatus.autocompleteApi = { status: 'healthy', lastSuccess: now };
-    } catch (error) {
-        healthStatus.autocompleteApi.status = 'unhealthy';
-        console.error('Autocomplete API health check failed:', error.message);
-    }
+    await Promise.all(Object.entries(UPSTREAM_CHECKS).map(async ([key, { label, url }]) => {
+        try {
+            await axios.get(url, { timeout: 5000 });
+            healthStatus[key] = { status: 'healthy', lastSuccess: now };
+        } catch (error) {
+            healthStatus[key].status = 'unhealthy';
+            console.error(`${label} health check failed:`, error.message);
+        }
+    }));
 
     // Log status
     console.log(`[${now}] Health Check:`, {
@@ -595,12 +587,12 @@ if (require.main === module) {
     // Perform health check on startup
     performHealthCheck();
 
-    // Perform health check every hour
-    setInterval(performHealthCheck, 60 * 60 * 1000);
+    // Refresh upstream status in the background
+    setInterval(performHealthCheck, HEALTH_CHECK_INTERVAL_MS);
 
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`Dictionary server running on http://0.0.0.0:${PORT}`);
-        console.log('Health checks will run every hour');
+        console.log('Health checks will run every 5 minutes');
     });
 }
 
