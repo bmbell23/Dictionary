@@ -195,6 +195,13 @@ scripts/define-save ingress \
   --pos noun --tags infra,k8s --see-also "egress,Traefik"
 ```
 
+**Every `!define` reply comes in three tiers, each linking to the next (#21):**
+1. **Inline**, where Brandon typed it: 1–2 lines with the gist, then `[more in #dictionary](<permalink>) · [in the dictionary](<app link>)`.
+2. **`#dictionary`**: the fuller, fun version. It has all the senses, the etymology, the word spelled out, the personal connection and related words, and ends with the app link. Posted with `/home/brandon/projects/agent-bus/bin/say daphne '#dictionary' -`, which prints the post id. The permalink is `http://100.69.184.113:8015/office/pl/<post id>`.
+3. **The app**: `http://dictionary.10.0.0.201.sslip.io/<term, URL-encoded>`. The `/:word` route pre-fills the search and shows the 📒 term with its 📖 badge and notes.
+
+The order: save the term first, then post tier 2, then write tier 1 with both links. If tier 2 can't be posted, say so in tier 1 and keep the app link.
+
 - Every save stamps `definedAt` with the current time. In the UI it's the **📖 !define'd <date>** badge, on the lookup card and in the Terms tab. `GET /api/terms?defined=1` lists only the terms I was asked to define. Terms you add by hand don't get the badge.
 - The script creates the term, or updates it if it's already there. On an update, any field you don't pass keeps its current value.
 - `DICTIONARY_URL` overrides the target (default `http://dictionary.10.0.0.201.sslip.io`). Exit codes: 1 = HTTP error, 2 = usage.
