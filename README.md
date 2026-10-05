@@ -202,6 +202,8 @@ scripts/define-save ingress \
 
 The order: save the term first, then post tier 2, then write tier 1 with both links. If tier 2 can't be posted, say so in tier 1 and keep the app link.
 
+Tier 1 starts with the word itself, with no process talk ("saved… one catch…"). Mention a problem only if something actually failed. The dictionary link is always the app page above, never `/api/...` JSON.
+
 - Every save stamps `definedAt` with the current time. In the UI it's the **📖 !define'd <date>** badge, on the lookup card and in the Terms tab. `GET /api/terms?defined=1` lists only the terms I was asked to define. Terms you add by hand don't get the badge.
 - The script creates the term, or updates it if it's already there. On an update, any field you don't pass keeps its current value.
 - `DICTIONARY_URL` overrides the target (default `http://dictionary.10.0.0.201.sslip.io`). Exit codes: 1 = HTTP error, 2 = usage.
