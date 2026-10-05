@@ -183,3 +183,22 @@ English lookups are served from a local SQLite database built from Open English 
 - **Status:** `/api/health` reports `localDictionary: {status, words, builtAt}`.
 - **Schedule:** `dagu/dictionary-sync.yaml` is a weekly (Sunday 04:00 America/New_York) Dagu DAG. It is not installed anywhere yet; Dagu cannot run host jobs (`docker exec`) today.
 - **Tests:** `cd app && npm test` (Node 22+, uses built-in `node:sqlite`).
+
+## `!define` — infra-aware glossary entries
+
+`!define <term>` in Mattermost wakes Daphne. She replies with the definition and what the term means in this setup. Then she saves it to the personal glossary on the live copy with `scripts/define-save`:
+
+```bash
+scripts/define-save kubelet \
+  --definition "The agent on each Kubernetes node that starts pods and reports their health." \
+  --notes "In our setup: runs on k3s01-03; Dictionary's pod lives on k3s01." \
+  --pos noun --tags infra,k8s --see-also "k3s,pod"
+```
+
+- The script creates the term, or updates it if it's already there. On an update, any field you don't pass keeps its current value.
+- `DICTIONARY_URL` overrides the target (default `http://dictionary.10.0.0.201.sslip.io`). Exit codes: 1 = HTTP error, 2 = usage.
+- **Entry convention:**
+  - `definition`: the general meaning.
+  - `notes`: start with "In our setup:" and name concrete hosts, ports, repos and tickets.
+  - `tags`: `infra` plus a topic.
+  - `seeAlso`: related glossary terms.

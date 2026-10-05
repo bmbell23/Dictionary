@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Save a term to the personal glossary: create it, or update it if it's already there (#14).
+# Used by Daphne for !define. Prints the saved entry as JSON.
+#
+#   scripts/define-save <term> --definition "…" [--notes "In our setup: …"] [--pos noun]
+#                       [--tags infra,k8s] [--see-also "term one,term two"]
+#
+# DICTIONARY_URL overrides the target (default: the live k3s copy).
+set -euo pipefail
+
+URL=${DICTIONARY_URL:-http://dictionary.10.0.0.201.sslip.io}
+usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+
+[ $# -ge 1 ] && [ "${1#-}" = "$1" ] || usage
+term=$1; shift
+definition= notes= pos= tags= see_also=
+while [ $# -gt 0 ]; do
+    case $1 in
+        --definition) definition=$2 ;;
+        --notes)      notes=$2 ;;
+        --pos)        pos=$2 ;;
+        --tags)       tags=$2 ;;
+        --see-also)   see_also=$2 ;;
+        *) usage ;;
+    esac
+    shift 2 || usage
+done
+[ -n "$definition" ] || usage
+
+body=$(jq -n --arg term "$term" --arg definition "$definition" --arg notes "$notes" --arg pos "$pos" \
+    --arg tags "$tags" --arg seeAlso "$see_also" '
+    def list: split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != ""));
+    # Only the fields given, so an update keeps what it was not told to change
+    {term: $term, definition: $definition}
+    + (if $notes != "" then {notes: $notes} else {} end)
+    + (if $pos != "" then {partOfSpeech: $pos} else {} end)
+    + (if $tags != "" then {tags: ($tags | list)} else {} end)
+    + (if $seeAlso != "" then {seeAlso: ($seeAlso | list)} else {} end)')
+
+out=$(mktemp); trap 'rm -f "$out"' EXIT
+code=$(curl -s -m 15 -o "$out" -w '%{http_code}' -H 'Content-Type: application/json' -d "$body" "$URL/api/terms" || true)
+if [ "$code" = 409 ]; then
+    enc=$(jq -rn --arg t "$term" '$t | @uri')
+    code=$(curl -s -m 15 -o "$out" -w '%{http_code}' -X PUT -H 'Content-Type: application/json' -d "$body" "$URL/api/terms/$enc" || true)
+    action=updated
+else
+    action=created
+fi
+case $code in
+    200|201) echo "$action: $(cat "$out")" ;;
+    *) echo "define-save: HTTP $code from $URL: $(cat "$out")" >&2; exit 1 ;;
+esac
