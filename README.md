@@ -183,3 +183,27 @@ English lookups are served from a local SQLite database built from Open English 
 - **Status:** `/api/health` reports `localDictionary: {status, words, builtAt}`.
 - **Schedule:** `dagu/dictionary-sync.yaml` is a weekly (Sunday 04:00 America/New_York) Dagu DAG. It is not installed anywhere yet; Dagu cannot run host jobs (`docker exec`) today.
 - **Tests:** `cd app && npm test` (Node 22+, uses built-in `node:sqlite`).
+
+## `!define` — glossary entries with a personal connection
+
+`!define <term>` in Mattermost wakes Daphne. It works for any word: a word for your writing, a neat one you heard, or one from the infrastructure. She replies with the definition and, when there is one, **how it connects to you**. Then she saves it to the personal glossary on the live copy with `scripts/define-save`:
+
+```bash
+scripts/define-save ingress \
+  --definition "The act of entering, or a way in; in Kubernetes, the rules that route outside HTTP traffic to services." \
+  --notes "In our setup: Traefik on k3s01-03 is the ingress; dictionary.10.0.0.201.sslip.io comes in through it." \
+  --pos noun --tags infra,k8s --see-also "egress,Traefik"
+```
+
+- Every save stamps `definedAt` with the current time. In the UI it's the **📖 !define'd <date>** badge, on the lookup card and in the Terms tab. `GET /api/terms?defined=1` lists only the terms I was asked to define. Terms you add by hand don't get the badge.
+- The script creates the term, or updates it if it's already there. On an update, any field you don't pass keeps its current value.
+- `DICTIONARY_URL` overrides the target (default `http://dictionary.10.0.0.201.sslip.io`). Exit codes: 1 = HTTP error, 2 = usage.
+- **Entry convention:**
+  - `definition`: the general meaning, all of its senses (*ingress* is a river mouth and an astronomer's word too, not just Kubernetes).
+  - `notes`: the personal connection, only when there's a real one, and with concrete details:
+    - **"In our setup:"** hosts, ports, repos, tickets. This is the most valuable kind.
+    - **"In your books:"** authors and titles from the GreatReads library.
+    - **"For your hobbies:"** woodworking, bookbinding, writing, music, photography.
+  - Leave `notes` out rather than invent a connection, and keep anything private or explicit out of it.
+  - `tags`: the topic, e.g. `infra`, `writing`, `bookbinding`, `woodworking`, `neat-word`.
+  - `seeAlso`: related words.

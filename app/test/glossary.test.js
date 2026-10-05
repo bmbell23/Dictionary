@@ -110,3 +110,45 @@ test('terms survive reopening the database', () => {
     glossary.open(dataDir);
     assert.ok(glossary.get('dockerhost'));
 });
+
+test('definedAt: stored, kept on unrelated updates, filterable, validated', async () => {
+    let res = await api('POST', '/api/terms', { term: 'Ingress', definition: 'Routes HTTP into the cluster.', definedAt: '2026-10-04T20:35:00Z' });
+    assert.strictEqual(res.status, 201);
+    assert.strictEqual((await res.json()).definedAt, '2026-10-04T20:35:00.000Z');
+    await api('POST', '/api/terms', { term: 'Handmade', definition: 'Added by hand.' });
+
+    res = await api('PUT', '/api/terms/ingress', { notes: 'In our setup: Traefik on k3s.' });
+    assert.strictEqual((await res.json()).definedAt, '2026-10-04T20:35:00.000Z');
+
+    res = await api('GET', '/api/terms?defined=1');
+    assert.deepStrictEqual((await res.json()).map(t => t.term), ['Ingress']);
+    res = await api('GET', '/api/terms/handmade');
+    assert.strictEqual((await res.json()).definedAt, null);
+
+    res = await api('PUT', '/api/terms/ingress', { definedAt: 'not a date' });
+    assert.strictEqual(res.status, 400);
+    res = await api('PUT', '/api/terms/ingress', { definedAt: null });
+    assert.strictEqual((await res.json()).definedAt, null);
+
+    await api('DELETE', '/api/terms/ingress');
+    await api('DELETE', '/api/terms/handmade');
+});
+
+test('opening a pre-#14 glossary adds defined_at and keeps its terms', () => {
+    const { DatabaseSync } = require('node:sqlite');
+    const oldDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glossary-old-'));
+    const old = new DatabaseSync(path.join(oldDir, 'glossary.db'));
+    old.exec(`CREATE TABLE terms (id INTEGER PRIMARY KEY AUTOINCREMENT, term TEXT NOT NULL, term_key TEXT NOT NULL UNIQUE,
+        definition TEXT NOT NULL, part_of_speech TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '[]',
+        notes TEXT NOT NULL DEFAULT '', see_also TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+    old.prepare(`INSERT INTO terms (term, term_key, definition, created_at, updated_at) VALUES ('Old', 'old', 'From before', 'x', 'x')`).run();
+    old.close();
+    try {
+        glossary.open(oldDir);
+        assert.strictEqual(glossary.get('old').definedAt, null);
+        assert.strictEqual(glossary.update('old', { definedAt: '2026-10-05T00:00:00Z' }).definedAt, '2026-10-05T00:00:00.000Z');
+    } finally {
+        glossary.open(dataDir);
+        fs.rmSync(oldDir, { recursive: true, force: true });
+    }
+});

@@ -537,6 +537,16 @@
             margin-bottom: 8px;
         }
 
+        .defined-badge {
+            display: inline-block;
+            font-size: 0.8em;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: #eef0ff;
+            color: #4c51bf;
+            margin: 4px 0;
+        }
+
         .glossary-meta {
             margin-top: 10px;
             color: #6d4c41;
@@ -1316,6 +1326,13 @@
             return escapeHtml(JSON.stringify(String(value ?? '')));
         }
 
+        // "📖 !define'd Oct 4, 2026, 8:35 PM" for terms Brandon asked Daphne to define (#14)
+        function definedBadge(term) {
+            if (!term.definedAt) return '';
+            const when = new Date(term.definedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+            return `<span class="defined-badge" title="You asked Daphne to !define this">📖 !define'd ${escapeHtml(when)}</span>`;
+        }
+
         function glossaryHtml(term) {
             const tags = term.tags.map(t => `<span class="glossary-tag" onclick="openTab('terms'); filterTermsByTag(${jsArg(t)})">${escapeHtml(t)}</span>`).join('');
             const seeAlso = term.seeAlso.map(w =>
@@ -1323,7 +1340,7 @@
             ).join(', ');
             return `
                 <div class="glossary-block">
-                    <div class="glossary-badge">📒 My term</div>
+                    <div class="glossary-badge">📒 My term</div> ${definedBadge(term)}
                     ${term.partOfSpeech ? `<div class="part-of-speech">${escapeHtml(term.partOfSpeech)}</div>` : ''}
                     <div class="definition-text" style="white-space: pre-line;">${escapeHtml(term.definition)}</div>
                     <div class="glossary-meta">
@@ -1770,6 +1787,7 @@
                         <button class="remove-favorite" style="position: static;" onclick="deleteTerm(${jsArg(t.term)})">Delete</button>
                     </div>
                     <div class="favorite-word" onclick="lookupWord(${jsArg(t.term)}); openTab('dictionary');">${escapeHtml(t.term)}</div>
+                    ${definedBadge(t)}
                     <div class="favorite-definition">
                         ${t.partOfSpeech ? `<em>${escapeHtml(t.partOfSpeech)}</em> — ` : ''}${escapeHtml(t.definition)}
                     </div>

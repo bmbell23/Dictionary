@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { DatabaseSync } = require('node:sqlite');
 
-const FIELDS = ['term', 'definition', 'partOfSpeech', 'tags', 'notes', 'seeAlso'];
+const FIELDS = ['term', 'definition', 'partOfSpeech', 'tags', 'notes', 'seeAlso', 'definedAt'];
 
 let db = null;
 
@@ -25,6 +25,9 @@ function open(dataDir = process.env.DATA_DIR || path.join(__dirname, '..', 'data
             updated_at TEXT NOT NULL
         )
     `);
+    // When Brandon last asked Daphne to !define it (#14); added after the first release
+    const columns = db.prepare('PRAGMA table_info(terms)').all().map(c => c.name);
+    if (!columns.includes('defined_at')) db.exec('ALTER TABLE terms ADD COLUMN defined_at TEXT');
     return db;
 }
 
@@ -51,6 +54,7 @@ function fromRow(row) {
         tags: JSON.parse(row.tags),
         notes: row.notes,
         seeAlso: JSON.parse(row.see_also),
+        definedAt: row.defined_at || null,
         createdAt: row.created_at,
         updatedAt: row.updated_at
     };
@@ -74,6 +78,15 @@ function validate(input, { partial = false } = {}) {
     if (input.notes !== undefined) out.notes = String(input.notes).trim();
     if (input.tags !== undefined) out.tags = toList(input.tags);
     if (input.seeAlso !== undefined) out.seeAlso = toList(input.seeAlso);
+    if (input.definedAt !== undefined) {
+        if (input.definedAt === null || input.definedAt === '') {
+            out.definedAt = null;
+        } else {
+            const when = new Date(input.definedAt);
+            if (isNaN(when)) throw { status: 400, message: 'definedAt must be an ISO date' };
+            out.definedAt = when.toISOString();
+        }
+    }
     return out;
 }
 
@@ -81,8 +94,9 @@ function get(term) {
     return fromRow(conn().prepare('SELECT * FROM terms WHERE term_key = ?').get(key(term)));
 }
 
-function list({ tag, q } = {}) {
+function list({ tag, q, defined } = {}) {
     let rows = conn().prepare('SELECT * FROM terms ORDER BY term_key').all().map(fromRow);
+    if (defined) rows = rows.filter(t => t.definedAt);
     if (tag) rows = rows.filter(t => t.tags.some(x => x.toLowerCase() === tag.toLowerCase()));
     if (q) rows = rows.filter(t => t.term.toLowerCase().includes(q.toLowerCase()));
     return rows;
@@ -108,10 +122,10 @@ function create(input) {
     if (get(t.term)) throw { status: 409, message: `"${t.term}" is already in the glossary` };
     const now = new Date().toISOString();
     conn().prepare(`
-        INSERT INTO terms (term, term_key, definition, part_of_speech, tags, notes, see_also, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO terms (term, term_key, definition, part_of_speech, tags, notes, see_also, defined_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(t.term, key(t.term), t.definition, t.partOfSpeech || '', JSON.stringify(t.tags || []),
-        t.notes || '', JSON.stringify(t.seeAlso || []), now, now);
+        t.notes || '', JSON.stringify(t.seeAlso || []), t.definedAt || null, now, now);
     return get(t.term);
 }
 
@@ -124,10 +138,10 @@ function update(term, input) {
     }
     conn().prepare(`
         UPDATE terms SET term = ?, term_key = ?, definition = ?, part_of_speech = ?, tags = ?, notes = ?,
-            see_also = ?, updated_at = ?
+            see_also = ?, defined_at = ?, updated_at = ?
         WHERE term_key = ?
     `).run(merged.term, key(merged.term), merged.definition, merged.partOfSpeech, JSON.stringify(merged.tags),
-        merged.notes, JSON.stringify(merged.seeAlso), new Date().toISOString(), key(existing.term));
+        merged.notes, JSON.stringify(merged.seeAlso), merged.definedAt, new Date().toISOString(), key(existing.term));
     return get(merged.term);
 }
 
