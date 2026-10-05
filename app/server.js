@@ -435,7 +435,7 @@ function sendGlossaryError(res, error) {
 
 app.get('/api/terms', (req, res) => {
     try {
-        res.json(glossary.list({ tag: req.query.tag, q: req.query.q }));
+        res.json(glossary.list({ tag: req.query.tag, q: req.query.q, defined: req.query.defined === '1' }));
     } catch (error) { sendGlossaryError(res, error); }
 });
 

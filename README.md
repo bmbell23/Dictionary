@@ -195,6 +195,7 @@ scripts/define-save kubelet \
   --pos noun --tags infra,k8s --see-also "k3s,pod"
 ```
 
+- Every save stamps `definedAt` with the current time. In the UI it's the **📖 !define'd <date>** badge, on the lookup card and in the Terms tab. `GET /api/terms?defined=1` lists only the terms I was asked to define. Terms you add by hand don't get the badge.
 - The script creates the term, or updates it if it's already there. On an update, any field you don't pass keeps its current value.
 - `DICTIONARY_URL` overrides the target (default `http://dictionary.10.0.0.201.sslip.io`). Exit codes: 1 = HTTP error, 2 = usage.
 - **Entry convention:**

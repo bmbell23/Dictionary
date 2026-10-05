@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Save a term to the personal glossary: create it, or update it if it's already there (#14).
-# Used by Daphne for !define. Prints the saved entry as JSON.
+# Used by Daphne for !define: stamps definedAt (now), the "📖 !define'd" flag in the UI.
+# Prints the saved entry as JSON.
 #
 #   scripts/define-save <term> --definition "…" [--notes "In our setup: …"] [--pos noun]
 #                       [--tags infra,k8s] [--see-also "term one,term two"]
@@ -9,7 +10,7 @@
 set -euo pipefail
 
 URL=${DICTIONARY_URL:-http://dictionary.10.0.0.201.sslip.io}
-usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 [ $# -ge 1 ] && [ "${1#-}" = "$1" ] || usage
 term=$1; shift
@@ -28,10 +29,10 @@ done
 [ -n "$definition" ] || usage
 
 body=$(jq -n --arg term "$term" --arg definition "$definition" --arg notes "$notes" --arg pos "$pos" \
-    --arg tags "$tags" --arg seeAlso "$see_also" '
+    --arg tags "$tags" --arg seeAlso "$see_also" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
     def list: split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != ""));
     # Only the fields given, so an update keeps what it was not told to change
-    {term: $term, definition: $definition}
+    {term: $term, definition: $definition, definedAt: $now}
     + (if $notes != "" then {notes: $notes} else {} end)
     + (if $pos != "" then {partOfSpeech: $pos} else {} end)
     + (if $tags != "" then {tags: ($tags | list)} else {} end)
