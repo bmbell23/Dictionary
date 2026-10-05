@@ -4,7 +4,7 @@
 # Prints the saved entry as JSON.
 #
 #   scripts/define-save <term> --definition "…" [--notes "In our setup: …"] [--pos noun]
-#                       [--tags infra,k8s] [--see-also "term one,term two"]
+#                       [--tags writing,neat-word] [--see-also "term one,term two"]
 #
 # DICTIONARY_URL overrides the target (default: the live k3s copy).
 set -euo pipefail
